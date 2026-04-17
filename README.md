@@ -1,4 +1,4 @@
-# DE Medallion ETL Pipeline
+# Medallion ETL Pipeline
 
 A production-style data engineering portfolio project demonstrating **Medallion Architecture** (Bronze / Silver / Gold) for financial market data.
 
@@ -37,6 +37,34 @@ Built with: **PySpark · Apache Airflow · dbt · PostgreSQL · MinIO (S3-compat
 
 ---
 
+## Star Schema (Gold Layer)
+
+```
+              dim_date
+             ┌─────────┐
+             │ date_key│
+             │ year    │
+             │ quarter │
+             │ month   │
+             └────┬────┘
+                  │
+dim_ticker        │        fact_stock_prices
+┌──────────┐      │       ┌──────────────────┐
+│ticker_key├──────┼───────│ price_key        │
+│symbol    │      └───────│ date_key         │
+│company   │              │ ticker_key       │
+│sector    │              │ open_price       │
+│exchange  │              │ high_price       │
+└──────────┘              │ low_price        │
+                          │ close_price      │
+                          │ adj_close_price  │
+                          │ volume           │
+                          │ daily_return     │
+                          │ price_range      │
+                          └──────────────────┘
+```
+
+---
 
 ## Tech Stack
 
@@ -54,6 +82,23 @@ Built with: **PySpark · Apache Airflow · dbt · PostgreSQL · MinIO (S3-compat
 
 ---
 
+## Data Quality Framework
+
+The Silver layer applies the following checks to every record:
+
+| Check                | Rule                                           | Action on Failure       |
+|----------------------|------------------------------------------------|-------------------------|
+| Null completeness    | No nulls in date, ticker, OHLCV               | Write to rejected path  |
+| Positive prices      | open, high, low, close > 0                    | Write to rejected path  |
+| Non-negative volume  | volume >= 0                                   | Write to rejected path  |
+| OHLC consistency     | high >= low, high >= open, high >= close      | Write to rejected path  |
+
+Rejected records are written to `s3://rejected/stock_prices/run_ts=<timestamp>/` with a `failure_reason` column for downstream analysis and remediation tracking.
+
+Pipeline runs are logged to the `pipeline_audit_log` table in PostgreSQL.
+
+---
+
 ## Prerequisites
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
@@ -63,14 +108,12 @@ That's it — no AWS account, no cloud credentials needed.
 
 ---
 
-
-
 ## Quick Start
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/girijathiru2025/data-engineering-medallion-architecture.git
-cd data-engineering-medallion-architecture
+git clone https://github.com/YOUR_USERNAME/medallion-etl-pipeline.git
+cd medallion-etl-pipeline
 
 # 2. Start all services
 cd docker
@@ -80,8 +123,61 @@ docker compose up -d
 
 # 3. Verify services are running
 docker compose ps
+
+# 4. Trigger a manual pipeline run
+# Open Airflow UI: http://localhost:8080
+# Login: admin / admin
+# Enable and trigger: medallion_stock_pipeline DAG
+
+# 5. Check MinIO (Bronze/Silver data)
+# Open MinIO Console: http://localhost:9001
+# Login: minioadmin / minioadmin
+
+# 6. Query Gold layer (PostgreSQL)
+docker compose exec postgres psql -U airflow -d gold -c "SELECT COUNT(*) FROM fact_stock_prices;"
 ```
 
+---
+
+## Project Structure
+
+```
+medallion-etl-pipeline/
+├── airflow/
+│   └── dags/
+│       └── medallion_pipeline_dag.py   # Main Airflow DAG
+├── spark/
+│   └── jobs/
+│       ├── bronze_ingest.py            # Bronze: yfinance → MinIO
+│       └── silver_transform.py         # Silver: PySpark cleanse + validate
+├── dbt/
+│   ├── models/
+│   │   └── gold/
+│   │       ├── dim_date.sql
+│   │       ├── dim_ticker.sql
+│   │       ├── fact_stock_prices.sql
+│   │       └── schema.yml              # dbt tests
+│   ├── dbt_project.yml
+│   └── profiles.yml
+├── scripts/
+│   └── init_gold_db.sql               # PostgreSQL schema DDL
+├── tests/
+│   └── test_silver_quality_checks.py  # PySpark unit tests
+├── docker/
+│   └── docker-compose.yml
+├── .github/
+│   └── workflows/ci.yml               # GitHub Actions CI
+└── requirements.txt
+```
+
+---
+
+## Running Tests Locally
+
+```bash
+pip install pyspark==3.5.1 pytest==8.1.1 pytest-cov==5.0.0
+pytest tests/ -v
+```
 
 ---
 
@@ -105,3 +201,17 @@ docker compose ps
 Data range: 2020-01-01 to present
 
 ---
+
+## Design Decisions
+
+- **MinIO over real AWS S3** — same boto3/S3A API, zero cloud cost, runs fully local
+- **PostgreSQL for Gold** — dbt native support, easy to query, no warehouse account needed
+- **Incremental dbt models** — fact table uses `merge` strategy; reruns are safe and efficient
+- **Rejected records pattern** — mirrors production data quality practices; failure_reason enables targeted remediation
+- **Docker Compose** — single command to run the entire platform locally for reviewers
+
+---
+
+## License
+
+MIT

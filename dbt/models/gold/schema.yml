@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: dim_date
+    description: "Date dimension covering 2015–2030"
+    columns:
+      - name: date_key
+        description: "Integer surrogate key in YYYYMMDD format"
+        tests: [unique, not_null]
+      - name: full_date
+        tests: [unique, not_null]
+
+  - name: dim_ticker
+    description: "Stock ticker dimension with company metadata"
+    columns:
+      - name: ticker_key
+        tests: [unique, not_null]
+      - name: ticker_symbol
+        tests: [unique, not_null]
+
+  - name: fact_stock_prices
+    description: "Daily stock price fact table — central table of the star schema"
+    columns:
+      - name: price_key
+        tests: [unique, not_null]
+      - name: date_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+      - name: ticker_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_ticker')
+              field: ticker_key
+      - name: close_price
+        tests: [not_null]
+      - name: volume
+        tests: [not_null]
