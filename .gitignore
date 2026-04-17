@@ -7,3 +7,37 @@ build/
 .venv/
 venv/
 .env
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+
+# Spark
+spark/logs/
+
+# Airflow
+airflow/logs/
+airflow/plugins/__pycache__/
+
+# Data
+data/raw/
+data/sample/*.parquet
+
+# Docker volumes (local only)
+.docker/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test/coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
