@@ -63,50 +63,50 @@ def get_s3_client():
     )
 
 
-def fetch_ticker_data(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
-    """Download OHLCV data from Yahoo Finance for a single ticker."""
-    logger.info(f"Fetching {ticker} from {start_date} to {end_date}")
-    df = yf.download(ticker, start=start_date, end=end_date, progress=False, auto_adjust=False)
-    logger.debug(f"[{ticker}] Raw download shape: {df.shape}")
-    logger.debug(f"[{ticker}] Raw columns: {list(df.columns)}")
-    logger.debug(f"[{ticker}] Column type: {type(df.columns)}")
+def fetch_all_tickers(tickers: List[str], start_date: str, end_date: str) -> dict:
+    """Download OHLCV data for all tickers in a single batch call to avoid rate limiting."""
+    logger.info(f"Batch fetching {len(tickers)} tickers from {start_date} to {end_date}")
+    raw = yf.download(tickers, start=start_date, end=end_date, progress=False, auto_adjust=False, group_by="ticker", threads=False)
+    logger.debug(f"Batch download shape: {raw.shape}, columns type: {type(raw.columns)}")
 
-    if df.empty:
-        logger.warning(f"No data returned for {ticker}")
-        return pd.DataFrame()
+    ingested_at = datetime.utcnow().isoformat()
+    result = {}
 
-    df = df.reset_index()
-    logger.debug(f"[{ticker}] After reset_index — columns: {list(df.columns)}")
+    for ticker in tickers:
+        try:
+            # With group_by="ticker", columns are a MultiIndex: (ticker, field)
+            if isinstance(raw.columns, pd.MultiIndex):
+                df = raw[ticker].copy()
+            else:
+                df = raw.copy()
 
-    # Flatten MultiIndex columns if present (yfinance >= 0.2 quirk)
-    if isinstance(df.columns, pd.MultiIndex):
-        logger.debug(f"[{ticker}] MultiIndex detected — flattening columns")
-        flat_columns = []
-        for col in df.columns:
-            field_name = col[0]  # e.g. "Open", "Close" — always take the first level
-            logger.debug(f"[{ticker}]   col tuple={col}  →  keeping '{field_name}'")
-            flat_columns.append(field_name)
-        df.columns = flat_columns
-        logger.debug(f"[{ticker}] After flatten — columns: {flat_columns}")
-    else:
-        logger.debug(f"[{ticker}] No MultiIndex — columns unchanged")
+            df = df.reset_index()
+            df.columns = [c.lower().replace(" ", "_") for c in df.columns]
 
-    df.columns = [c.lower().replace(" ", "_") for c in df.columns]
-    logger.debug(f"[{ticker}] After lowercasing — columns: {list(df.columns)}")
+            # Check if every non-date column is null (yfinance returns a date row with no price data for holidays/gaps)
+            price_cols = [c for c in df.columns if c != "date"]
+            all_prices_null = df.dropna(how="all", subset=price_cols).empty
+            if df.empty or all_prices_null:
+                logger.warning(f"No data returned for {ticker}")
+                result[ticker] = pd.DataFrame()
+                continue
 
-    df["ticker"]       = ticker
-    df["ingested_at"]  = datetime.utcnow().isoformat()
-    df["source"]       = "yahoo_finance"
+            df["ticker"]       = ticker
+            df["ingested_at"]  = ingested_at
+            df["source"]       = "yahoo_finance"
 
-    meta = TICKER_METADATA.get(ticker, {})
-    logger.debug(f"[{ticker}] Metadata looked up: {meta}")
-    df["company_name"] = meta.get("company_name", "")
-    df["sector"]       = meta.get("sector", "")
-    df["exchange"]     = meta.get("exchange", "")
+            meta = TICKER_METADATA.get(ticker, {})
+            df["company_name"] = meta.get("company_name", "")
+            df["sector"]       = meta.get("sector", "")
+            df["exchange"]     = meta.get("exchange", "")
 
-    logger.debug(f"[{ticker}] Final DataFrame shape: {df.shape}")
-    logger.debug(f"[{ticker}] Final columns: {list(df.columns)}")
-    logger.debug(f"[{ticker}] First row:\n{df.iloc[0].to_dict()}")
+            logger.debug(f"[{ticker}] shape={df.shape} columns={list(df.columns)}")
+            result[ticker] = df
+        except Exception as exc:
+            logger.error(f"[{ticker}] Failed to extract from batch: {exc}")
+            result[ticker] = pd.DataFrame()
+
+    return result
 
     return df
 
@@ -146,7 +146,7 @@ def write_to_bronze(s3_client, df: pd.DataFrame, ticker: str):
         logger.debug(f"[{ticker}] PyArrow table schema: {table.schema}")
 
         buf = pa.BufferOutputStream()
-        pq.write_table(table, buf)
+        pq.write_table(table, buf, coerce_timestamps="us", allow_truncated_timestamps=True)
         parquet_bytes = buf.getvalue().to_pybytes()
         logger.debug(f"[{ticker}] Parquet buffer size: {len(parquet_bytes)} bytes")
 
@@ -175,16 +175,19 @@ def run(
     s3 = get_s3_client()
     logger.debug("S3 client created successfully")
 
+    ticker_dfs = fetch_all_tickers(tickers, start_date, end_date)
+
     success, failed = [], []
-    for ticker in tickers:
-        logger.debug(f"--- Starting ticker: {ticker} ---")
+    for ticker, df in ticker_dfs.items():
+        if df.empty:
+            logger.error(f"No data fetched for {ticker} — marking as failed")
+            failed.append(ticker)
+            continue
         try:
-            df = fetch_ticker_data(ticker, start_date, end_date)
             write_to_bronze(s3, df, ticker)
             success.append(ticker)
-            logger.debug(f"--- Finished ticker: {ticker} ✓ ---")
         except Exception as exc:
-            logger.error(f"Failed to ingest {ticker}: {exc}", exc_info=True)
+            logger.error(f"Failed to write {ticker} to bronze: {exc}", exc_info=True)
             failed.append(ticker)
 
     logger.info(f"Bronze ingestion complete | success={success} | failed={failed}")

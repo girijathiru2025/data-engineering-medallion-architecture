@@ -5,8 +5,8 @@ de_medallion_etl:
       type: postgres
       host: "{{ env_var('POSTGRES_HOST', 'localhost') }}"
       port: 5432
-      user: airflow
-      password: airflow
+      user: "{{ env_var('POSTGRES_USER', 'airflow') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD', 'airflow') }}"
       dbname: gold
       schema: gold
       threads: 4

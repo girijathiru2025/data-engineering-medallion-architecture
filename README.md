@@ -1,4 +1,4 @@
-# Medallion ETL Pipeline
+# DE Medallion ETL Pipeline
 
 A production-style data engineering portfolio project demonstrating **Medallion Architecture** (Bronze / Silver / Gold) for financial market data.
 
@@ -9,31 +9,33 @@ Built with: **PySpark · Apache Airflow · dbt · PostgreSQL · MinIO (S3-compat
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        ORCHESTRATION LAYER                          │
-│                    Apache Airflow (Daily DAG)                       │
-└───────────┬────────────────┬──────────────────┬────────────────────┘
-            │                │                  │
-            ▼                ▼                  ▼
-   ┌─────────────┐  ┌──────────────────┐  ┌──────────────┐
-   │   BRONZE    │  │     SILVER       │  │     GOLD     │
-   │             │  │                  │  │              │
-   │ Raw Parquet │  │ Cleansed Parquet │  │  Star Schema │
-   │  on MinIO   │─▶│   on MinIO       │─▶│ (PostgreSQL) │
-   │             │  │                  │  │              │
-   │ yfinance    │  │ PySpark job      │  │ dbt models   │
-   │ → partitioned│  │ Quality checks   │  │ fact + dims  │
-   │ by date     │  │ Rejected records │  │              │
-   └─────────────┘  └──────────────────┘  └──────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                               ORCHESTRATION LAYER                                   │
+│                           Apache Airflow (Mon–Fri 6 AM UTC)                         │
+└───────────┬────────────────┬──────────────────┬──────────────┬──────────────────────┘
+            │                │                  │              │
+            ▼                ▼                  ▼              ▼
+   ┌─────────────┐  ┌──────────────────┐  ┌──────────┐  ┌──────────────┐
+   │   BRONZE    │  │     SILVER       │  │  LOAD    │  │     GOLD     │
+   │             │  │                  │  │          │  │              │
+   │ Raw Parquet │  │ Cleansed Parquet │  │ MinIO →  │  │  Star Schema │
+   │  on MinIO   │─▶│   on MinIO       │─▶│ Postgres │─▶│ (PostgreSQL) │
+   │             │  │                  │  │          │  │              │
+   │ yfinance    │  │ PySpark job      │  │ Airflow  │  │ dbt models   │
+   │ partitioned │  │ Quality checks   │  │ task     │  │ fact + dims  │
+   │ by ticker/  │  │ Rejected records │  │          │  │              │
+   │ date        │  │ → MinIO rejected │  │          │  │              │
+   └─────────────┘  └──────────────────┘  └──────────┘  └──────────────┘
 ```
 
 ### Layer Responsibilities
 
-| Layer  | Storage        | Tool     | Purpose                                              |
-|--------|----------------|----------|------------------------------------------------------|
-| Bronze | MinIO (S3)     | Python   | Raw ingestion, append-only, partitioned by date      |
-| Silver | MinIO (S3)     | PySpark  | Cleansed, validated, deduplicated, enriched          |
-| Gold   | PostgreSQL     | dbt      | Star schema — analytics-ready for BI/reporting       |
+| Layer  | Storage        | Tool     | Purpose                                                        |
+|--------|----------------|----------|----------------------------------------------------------------|
+| Bronze | MinIO (S3)     | Python   | Raw ingestion, append-only, partitioned by ticker/date         |
+| Silver | MinIO (S3)     | PySpark  | Cleansed, validated, enriched; rejected records isolated       |
+| Load   | PostgreSQL     | Airflow  | Bridges Silver Parquet → PostgreSQL for dbt to query           |
+| Gold   | PostgreSQL     | dbt      | Star schema — analytics-ready for BI/reporting                 |
 
 ---
 
@@ -112,8 +114,8 @@ That's it — no AWS account, no cloud credentials needed.
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/YOUR_USERNAME/medallion-etl-pipeline.git
-cd medallion-etl-pipeline
+git clone https://github.com/girijathiru2025/data-engineering-medallion-architecture.git
+cd data-engineering-medallion-architecture
 
 # 2. Start all services
 cd docker
@@ -127,14 +129,14 @@ docker compose ps
 # 4. Trigger a manual pipeline run
 # Open Airflow UI: http://localhost:8080
 # Login: admin / admin
-# Enable and trigger: medallion_stock_pipeline DAG
+# Enable and trigger: de_medallion_stock_pipeline DAG
 
 # 5. Check MinIO (Bronze/Silver data)
 # Open MinIO Console: http://localhost:9001
 # Login: minioadmin / minioadmin
 
 # 6. Query Gold layer (PostgreSQL)
-docker compose exec postgres psql -U airflow -d gold -c "SELECT COUNT(*) FROM fact_stock_prices;"
+docker compose exec postgres psql -U airflow -d gold -c "SELECT COUNT(*) FROM gold.fact_stock_prices;"
 ```
 
 ---
@@ -142,10 +144,10 @@ docker compose exec postgres psql -U airflow -d gold -c "SELECT COUNT(*) FROM fa
 ## Project Structure
 
 ```
-medallion-etl-pipeline/
+data-engineering-medallion-architecture/
 ├── airflow/
 │   └── dags/
-│       └── medallion_pipeline_dag.py   # Main Airflow DAG
+│       └── de_medallion_stock_pipeline_dag.py   # Main Airflow DAG
 ├── spark/
 │   └── jobs/
 │       ├── bronze_ingest.py            # Bronze: yfinance → MinIO
@@ -160,7 +162,7 @@ medallion-etl-pipeline/
 │   ├── dbt_project.yml
 │   └── profiles.yml
 ├── scripts/
-│   └── init_gold_db.sql               # PostgreSQL schema DDL
+│   └── init_gold_db.sql               # Creates gold database and pipeline_audit_log table
 ├── tests/
 │   └── test_silver_quality_checks.py  # PySpark unit tests
 ├── docker/
@@ -198,7 +200,7 @@ pytest tests/ -v
 | JNJ    | Johnson & Johnson | Healthcare         |
 | V      | Visa              | Financial Services |
 
-Data range: 2020-01-01 to present
+Schedule: Daily (Mon–Fri) at 6 AM UTC — fetches previous trading day's data
 
 ---
 
@@ -212,6 +214,3 @@ Data range: 2020-01-01 to present
 
 ---
 
-## License
-
-MIT

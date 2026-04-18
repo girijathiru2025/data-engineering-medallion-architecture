@@ -22,7 +22,10 @@ WITH silver AS (
     FROM {{ source('silver', 'stock_prices') }}
 
     {% if is_incremental() %}
-    WHERE processed_at > (SELECT MAX(created_at) FROM {{ this }})
+    WHERE processed_at::TIMESTAMP WITH TIME ZONE > COALESCE(
+        (SELECT MAX(created_at) FROM {{ this }}),
+        '1970-01-01'::TIMESTAMP WITH TIME ZONE
+    )
     {% endif %}
 ),
 

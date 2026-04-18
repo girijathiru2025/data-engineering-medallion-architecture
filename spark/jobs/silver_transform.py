@@ -22,6 +22,7 @@ from typing import Optional
 
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql import functions as F
+from pyspark.sql.window import Window
 from pyspark.sql.types import (
     StructType, StructField,
     StringType, DoubleType, LongType, DateType, TimestampType,
@@ -69,6 +70,7 @@ def build_spark_session() -> SparkSession:
     spark = (
         SparkSession.builder
         .appName("silver_transform")
+        .config("spark.jars.packages",                        "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262")
         .config("spark.hadoop.fs.s3a.endpoint",               MINIO_ENDPOINT)
         .config("spark.hadoop.fs.s3a.access.key",             AWS_ACCESS_KEY_ID)
         .config("spark.hadoop.fs.s3a.secret.key",             AWS_SECRET_ACCESS_KEY)
@@ -99,6 +101,7 @@ def apply_quality_checks(df: DataFrame) -> tuple[DataFrame, DataFrame]:
     Splits the DataFrame into clean and rejected records.
     Each rejected record carries a failure_reason column.
     """
+    df = df.cache()
     total_rows = df.count()
     logger.debug(f"Starting quality checks on {total_rows} rows")
     logger.debug(f"Critical columns being checked: {CRITICAL_COLUMNS}")
@@ -186,11 +189,7 @@ def enrich_silver(df: DataFrame) -> DataFrame:
     """Add derived columns and silver-layer metadata."""
     logger.debug(f"Enriching silver | input rows={df.count()} | columns={df.columns}")
 
-    window = (
-        __import__("pyspark.sql.window", fromlist=["Window"])
-        .Window.partitionBy("ticker")
-        .orderBy("date")
-    )
+    window = Window.partitionBy("ticker").orderBy("date")
     logger.debug("Window spec: partitionBy='ticker', orderBy='date'")
 
     processed_at = datetime.utcnow().isoformat()
@@ -231,7 +230,7 @@ def write_silver(df: DataFrame):
 
 
 def write_rejected(df: DataFrame):
-    if df.rdd.isEmpty():
+    if df.limit(1).count() == 0:
         logger.info("No rejected records — skipping rejected write.")
         logger.debug("Rejected DataFrame is empty — nothing to write")
         return

@@ -8,16 +8,16 @@
   Gold Layer: dim_date
   ----------------------
   Date dimension covering 2015-01-01 through 2030-12-31.
-  Generated using a recursive CTE — no external seed file needed.
+  Generated using generate_series() — PostgreSQL native, no recursion needed.
   Loaded once; re-run is idempotent (materialized='table').
 */
 
 WITH date_series AS (
-    SELECT CAST('2015-01-01' AS DATE) AS full_date
-    UNION ALL
-    SELECT (full_date + INTERVAL '1 day')::DATE
-    FROM date_series
-    WHERE full_date < '2030-12-31'
+    SELECT generate_series(
+        '2015-01-01'::DATE,
+        '2030-12-31'::DATE,
+        '1 day'::INTERVAL
+    )::DATE AS full_date
 )
 
 SELECT

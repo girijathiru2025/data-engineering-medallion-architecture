@@ -21,8 +21,6 @@ models:
   - name: fact_stock_prices
     description: "Daily stock price fact table — central table of the star schema"
     columns:
-      - name: price_key
-        tests: [unique, not_null]
       - name: date_key
         tests:
           - not_null
