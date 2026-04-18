@@ -26,7 +26,7 @@ jobs:
                       flake8 black
 
       - name: Lint (flake8)
-        run: flake8 spark/ airflow/ --max-line-length=120 --ignore=E501,W503
+        run: flake8 spark/ airflow/ --max-line-length=120 --ignore=E501,W503,E221,E241,E231,W504
 
       - name: Format check (black)
         run: black --check spark/ airflow/

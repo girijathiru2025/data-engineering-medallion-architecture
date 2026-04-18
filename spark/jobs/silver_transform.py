@@ -17,7 +17,7 @@ Uses PySpark for scalable processing.
 
 import os
 import logging
-from datetime import date, datetime
+from datetime import datetime
 from typing import Optional
 
 from pyspark.sql import SparkSession, DataFrame
@@ -25,7 +25,7 @@ from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 from pyspark.sql.types import (
     StructType, StructField,
-    StringType, DoubleType, LongType, DateType, TimestampType,
+    StringType, DoubleType, LongType, DateType,
 )
 
 logging.basicConfig(
@@ -43,7 +43,7 @@ SILVER_BUCKET         = os.getenv("SILVER_BUCKET", "silver")
 
 BRONZE_PATH   = f"s3a://{BRONZE_BUCKET}/stock_prices"
 SILVER_PATH   = f"s3a://{SILVER_BUCKET}/stock_prices"
-REJECTED_PATH = f"s3a://rejected/stock_prices"
+REJECTED_PATH = "s3a://rejected/stock_prices"
 
 # ── Expected schema from Bronze ───────────────────────────────────────────
 BRONZE_SCHEMA = StructType([
@@ -238,7 +238,7 @@ def write_rejected(df: DataFrame):
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     path = f"{REJECTED_PATH}/run_ts={ts}"
     logger.info(f"Writing {rejected_count} rejected records to: {path}")
-    logger.debug(f"Rejected records breakdown by failure_reason:")
+    logger.debug("Rejected records breakdown by failure_reason:")
     df.groupBy("failure_reason").count().show(truncate=False)
     df.write.mode("overwrite").parquet(path)
     logger.debug(f"Rejected write complete to: {path}")
