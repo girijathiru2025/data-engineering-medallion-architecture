@@ -149,8 +149,7 @@ def load_silver_to_postgres(**context):
     try:
         cur = conn.cursor()
         cur.execute("CREATE SCHEMA IF NOT EXISTS silver")
-        cur.execute(
-            """
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS silver.stock_prices (
                 date DATE, open DOUBLE PRECISION, high DOUBLE PRECISION,
                 low DOUBLE PRECISION, close DOUBLE PRECISION, adj_close DOUBLE PRECISION,
@@ -159,8 +158,7 @@ def load_silver_to_postgres(**context):
                 daily_return DOUBLE PRECISION, price_range DOUBLE PRECISION,
                 processed_at TEXT, layer TEXT
             )
-        """
-        )
+        """)
         cur.execute("TRUNCATE TABLE silver.stock_prices")
 
         cols = [
