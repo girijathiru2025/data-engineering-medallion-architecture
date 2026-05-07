@@ -1,6 +1,6 @@
 # DE Medallion ETL Pipeline
 
-A production-style data engineering portfolio project demonstrating **Medallion Architecture** (Bronze / Silver / Gold) for financial market data.
+End-to-end data pipeline using Snowflake, dbt, and Airflow — implementing Medallion Architecture with incremental CDC via Snowflake Streams, automated data quality validation, and full pipeline observability.
 
 Built with: **PySpark · Apache Airflow · dbt · PostgreSQL · MinIO (S3-compatible) · Docker**
 

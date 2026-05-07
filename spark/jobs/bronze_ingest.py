@@ -168,8 +168,6 @@ def fetch_all_tickers(tickers: List[str], start_date: str, end_date: str) -> dic
 
     return result
 
-    return df
-
 
 def write_to_bronze(s3_client, df: pd.DataFrame, ticker: str):
     """Write DataFrame as Parquet to Bronze bucket, partitioned by ticker/year/month/day."""
